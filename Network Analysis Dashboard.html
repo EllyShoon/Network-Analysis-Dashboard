@@ -1,0 +1,1256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hyundai Network — Analysis Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0e1a;
+    --surface: #111827;
+    --surface2: #1a2234;
+    --surface3: #0f1929;
+    --border: #1f2d45;
+    --border2: #253347;
+    --accent1: #00d4ff;
+    --accent2: #ff6b35;
+    --accent3: #7c3aed;
+    --accent4: #10b981;
+    --accent5: #f59e0b;
+    --accent6: #ec4899;
+    --text: #e2e8f0;
+    --muted: #64748b;
+    --white: #f8fafc;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Syne', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0,212,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,212,255,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .container { position: relative; z-index: 1; max-width: 1280px; margin: 0 auto; padding: 0 24px 60px; }
+
+  /* ── HEADER ───────────────────────────── */
+  header {
+    padding: 40px 0 32px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 36px;
+  }
+  h1 { font-size: clamp(26px,4vw,46px); font-weight: 800; color: var(--white); line-height: 1.1; letter-spacing: -0.02em; }
+  h1 span { color: var(--accent1); }
+
+  /* ── STATS ROW ────────────────────────── */
+  .stats-row { display: grid; grid-template-columns: repeat(4,1fr); gap: 14px; margin-bottom: 44px; }
+  .stat-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    padding: 18px 20px; position: relative; overflow: hidden;
+    animation: fadeUp .5s ease both;
+  }
+  .stat-card::before { content:''; position:absolute; top:0; left:0; right:0; height:2px; background:var(--accent-color); }
+  .stat-card:nth-child(1){--accent-color:var(--accent1);animation-delay:.1s}
+  .stat-card:nth-child(2){--accent-color:var(--accent2);animation-delay:.15s}
+  .stat-card:nth-child(3){--accent-color:var(--accent4);animation-delay:.2s}
+  .stat-card:nth-child(4){--accent-color:var(--accent5);animation-delay:.25s}
+  .stat-label { font-family:'DM Mono',monospace; font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.1em; margin-bottom:5px; }
+  .stat-value { font-size:26px; font-weight:700; color:var(--accent-color); line-height:1; }
+  .stat-sub { font-size:11px; color:var(--muted); margin-top:3px; }
+
+  /* ── SECTION LABEL ────────────────────── */
+  .section-label {
+    font-family:'DM Mono',monospace; font-size:10px; color:var(--muted);
+    letter-spacing:.15em; text-transform:uppercase; margin-bottom:18px;
+    display:flex; align-items:center; gap:10px;
+  }
+  .section-label::after { content:''; flex:1; height:1px; background:var(--border); }
+
+  /* ── TAB BAR ──────────────────────────── */
+  .tab-bar {
+    display:flex; gap:4px; background:var(--surface); border:1px solid var(--border);
+    border-radius:12px; padding:5px; margin-bottom:24px; overflow-x:auto; flex-wrap:wrap;
+  }
+  .tab {
+    flex:1; min-width:100px; padding:9px 14px; border-radius:8px; border:none;
+    background:transparent; color:var(--muted); font-family:'Syne',sans-serif;
+    font-size:12px; font-weight:600; cursor:pointer; transition:all .2s;
+    white-space:nowrap; text-align:center;
+  }
+  .tab.active { background:var(--tab-color); color:#000; }
+  .tab:hover:not(.active){ color:var(--white); background:var(--border); }
+  .tab[data-tab="employees"]{--tab-color:var(--accent1)}
+  .tab[data-tab="revenue"]{--tab-color:var(--accent2)}
+  .tab[data-tab="degree"]{--tab-color:var(--accent3)}
+  .tab[data-tab="closeness"]{--tab-color:var(--accent4)}
+  .tab[data-tab="betweenness"]{--tab-color:var(--accent5)}
+  .tab[data-tab="eigenvector"]{--tab-color:var(--accent6)}
+
+  /* ── PANEL ────────────────────────────── */
+  .panel { display:none; animation:fadeIn .3s ease; }
+  .panel.active { display:block; }
+
+  /* ── MAIN GRID: ranking left + detail right ── */
+  .panel-grid {
+    display: grid;
+    grid-template-columns: 1fr 420px;
+    gap: 18px;
+    align-items: start;
+  }
+
+  /* ── RANK ROWS ────────────────────────── */
+  .rank-grid { display:flex; flex-direction:column; gap:7px; }
+  .rank-row {
+    display: grid;
+    grid-template-columns: 36px 1fr;
+    align-items: center;
+    gap: 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 16px;
+    position: relative;
+    overflow: hidden;
+    transition: border-color .2s, transform .2s, box-shadow .2s;
+    animation: slideIn .3s ease both;
+    cursor: pointer;
+  }
+  .rank-row:hover, .rank-row.selected {
+    border-color: var(--row-color);
+    transform: translateX(3px);
+    box-shadow: 0 0 0 1px var(--row-color)22;
+  }
+  .rank-row.selected { background: var(--surface2); }
+  .rank-row::after {
+    content:''; position:absolute; left:0; top:0; bottom:0;
+    width:var(--bar-width); background:var(--row-color); opacity:.06; transition:opacity .2s;
+  }
+  .rank-row:hover::after, .rank-row.selected::after { opacity:.12; }
+
+  .rank-num { font-family:'DM Mono',monospace; font-size:17px; font-weight:500; color:var(--row-color); opacity:.8; text-align:center; }
+  .rank-num.gold{color:#fbbf24;opacity:1}
+  .rank-num.silver{color:#94a3b8;opacity:1}
+  .rank-num.bronze{color:#b45309;opacity:1}
+
+  .rank-info { display:flex; justify-content:space-between; align-items:center; gap:10px; min-width:0; }
+  .rank-text { min-width:0; }
+  .rank-name { font-size:12.5px; font-weight:600; color:var(--white); line-height:1.35; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .rank-meta { display:flex; gap:8px; margin-top:3px; flex-wrap:wrap; }
+  .rank-badge {
+    font-family:'DM Mono',monospace; font-size:9px; padding:2px 7px;
+    border-radius:20px; border:1px solid; white-space:nowrap;
+  }
+  .rank-badge.country { color:#60a5fa; border-color:#1d4ed855; background:#1d4ed811; }
+  .rank-badge.level { color:#a78bfa; border-color:#7c3aed44; background:#7c3aed0d; }
+  .rank-value { font-family:'DM Mono',monospace; font-size:13px; font-weight:500; color:var(--row-color); text-align:right; white-space:nowrap; flex-shrink:0; }
+
+  /* ── DETAIL PANEL ─────────────────────── */
+  .detail-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    position: sticky;
+    top: 20px;
+    overflow: hidden;
+  }
+  .detail-header {
+    padding: 18px 20px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface2);
+  }
+  .detail-header-tag {
+    font-family:'DM Mono',monospace; font-size:9px; color:var(--muted);
+    text-transform:uppercase; letter-spacing:.12em; margin-bottom:6px;
+  }
+  .detail-company-name {
+    font-size:14px; font-weight:700; color:var(--white); line-height:1.4;
+  }
+  .detail-score-row {
+    display:flex; gap:12px; margin-top:12px; flex-wrap:wrap;
+  }
+  .detail-kpi {
+    background: var(--surface3);
+    border: 1px solid var(--border);
+    border-radius:8px; padding:9px 13px; flex:1; min-width:80px;
+  }
+  .detail-kpi-label { font-family:'DM Mono',monospace; font-size:9px; color:var(--muted); text-transform:uppercase; letter-spacing:.08em; margin-bottom:3px; }
+  .detail-kpi-value { font-size:16px; font-weight:700; line-height:1; }
+
+  .detail-body { padding: 18px 20px; }
+  .detail-section-title {
+    font-family:'DM Mono',monospace; font-size:9px; color:var(--muted);
+    text-transform:uppercase; letter-spacing:.12em; margin-bottom:10px;
+    display:flex; align-items:center; gap:8px;
+  }
+  .detail-section-title::after { content:''; flex:1; height:1px; background:var(--border); }
+
+  /* Connection list */
+  .conn-list { display:flex; flex-direction:column; gap:6px; }
+  .conn-item {
+    display:grid;
+    grid-template-columns: auto 1fr auto;
+    align-items:center;
+    gap:10px;
+    padding:8px 12px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius:8px;
+    transition: border-color .15s;
+  }
+  .conn-item:hover { border-color: var(--border2); }
+
+  /* Size circle = degree */
+  .conn-dot {
+    width: 28px; height: 28px; border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+    font-family:'DM Mono',monospace; font-size:9px; font-weight:500;
+    flex-shrink:0;
+  }
+
+  .conn-text { min-width:0; }
+  .conn-name { font-size:11px; font-weight:600; color:var(--white); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .conn-sub { display:flex; gap:6px; margin-top:2px; flex-wrap:wrap; }
+  .conn-chip {
+    font-family:'DM Mono',monospace; font-size:9px; color:var(--muted); white-space:nowrap;
+  }
+  .conn-rev { font-family:'DM Mono',monospace; font-size:10px; text-align:right; white-space:nowrap; flex-shrink:0; }
+
+  /* Degree bar */
+  .deg-bar-wrap { margin-top:4px; width:100%; height:3px; background:var(--border); border-radius:2px; overflow:hidden; }
+  .deg-bar { height:100%; border-radius:2px; transition:width .4s ease; }
+
+  .no-selection {
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    padding:48px 20px; text-align:center; color:var(--muted);
+  }
+  .no-selection .icon { font-size:32px; margin-bottom:12px; opacity:.4; }
+  .no-selection p { font-size:13px; line-height:1.6; }
+
+  /* ── NETWORK FIGURE ───────────────────── */
+  .network-figure-section { margin-top: 44px; }
+  .figure-grid { display:grid; grid-template-columns: repeat(3,1fr); gap:16px; }
+  .figure-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius:12px;
+    padding:20px; position:relative; overflow:hidden;
+    animation: fadeUp .5s ease both;
+  }
+  .figure-card::before { content:''; position:absolute; top:0; left:0; right:0; height:2px; background:var(--fig-color,var(--accent1)); }
+  .figure-label { font-family:'DM Mono',monospace; font-size:9px; color:var(--muted); text-transform:uppercase; letter-spacing:.12em; margin-bottom:8px; }
+  .figure-title { font-size:15px; font-weight:700; color:var(--white); margin-bottom:10px; }
+  .figure-body { font-size:12px; color:var(--muted); line-height:1.65; }
+  .figure-body strong { color:var(--text); }
+
+  /* SVG mini-network */
+  .mini-network-wrap {
+    margin-top: 44px;
+  }
+  .mini-net-svg-wrap {
+    background: var(--surface); border:1px solid var(--border); border-radius:12px;
+    padding:24px; overflow:hidden;
+  }
+  .mini-net-svg-wrap svg { display:block; width:100%; height:auto; }
+
+  /* ── ANIMATIONS ───────────────────────── */
+  @keyframes fadeUp { from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:translateY(0)} }
+  @keyframes fadeIn { from{opacity:0} to{opacity:1} }
+  @keyframes slideIn { from{opacity:0;transform:translateX(-8px)} to{opacity:1;transform:translateX(0)} }
+
+  @media (max-width:900px) {
+    .panel-grid { grid-template-columns:1fr; }
+    .detail-panel { position:static; }
+    .stats-row { grid-template-columns:repeat(2,1fr); }
+    .figure-grid { grid-template-columns:1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <header>
+    <h1>Hyundai Motor Company<br><span>Network Analysis Dashboard</span></h1>
+  </header>
+
+  <!-- Network stats -->
+  <div class="section-label">Network Overview</div>
+  <div class="stats-row">
+    <div class="stat-card">
+      <div class="stat-label">Total Nodes</div>
+      <div class="stat-value">5,042</div>
+      <div class="stat-sub">Unique companies</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Total Edges</div>
+      <div class="stat-value">6,297</div>
+      <div class="stat-sub">Ownership links</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Density</div>
+      <div class="stat-value">0.000496</div>
+      <div class="stat-sub">Very sparse → structural holes</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Avg. Clustering</div>
+      <div class="stat-value">0.0105</div>
+      <div class="stat-sub">Low → brokerage network</div>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="section-label">Top 10 Rankings by Measure — Click any row to explore connections</div>
+  <div class="tab-bar">
+    <button class="tab active" data-tab="employees">👥 Employees</button>
+    <button class="tab" data-tab="revenue">💰 Revenue</button>
+    <button class="tab" data-tab="degree">🔗 Degree</button>
+    <button class="tab" data-tab="closeness">📍 Closeness</button>
+    <button class="tab" data-tab="betweenness">🌉 Betweenness</button>
+    <button class="tab" data-tab="eigenvector">⭐ Eigenvector</button>
+  </div>
+
+  <!-- Panels: each tab has ranking list + detail pane -->
+  <div id="panel-employees" class="panel active">
+    <div class="panel-grid">
+      <div class="rank-grid" id="ranks-employees"></div>
+      <div class="detail-panel" id="detail-employees"><div class="no-selection"><div class="icon">👆</div><p>Click any company row to explore its revenue, ownership level, and network connections.</p></div></div>
+    </div>
+  </div>
+  <div id="panel-revenue" class="panel">
+    <div class="panel-grid">
+      <div class="rank-grid" id="ranks-revenue"></div>
+      <div class="detail-panel" id="detail-revenue"><div class="no-selection"><div class="icon">👆</div><p>Click any company row to explore its revenue, ownership level, and network connections.</p></div></div>
+    </div>
+  </div>
+  <div id="panel-degree" class="panel">
+    <div class="panel-grid">
+      <div class="rank-grid" id="ranks-degree"></div>
+      <div class="detail-panel" id="detail-degree"><div class="no-selection"><div class="icon">👆</div><p>Click any company row to explore its revenue, ownership level, and network connections.</p></div></div>
+    </div>
+  </div>
+  <div id="panel-closeness" class="panel">
+    <div class="panel-grid">
+      <div class="rank-grid" id="ranks-closeness"></div>
+      <div class="detail-panel" id="detail-closeness"><div class="no-selection"><div class="icon">👆</div><p>Click any company row to explore its revenue, ownership level, and network connections.</p></div></div>
+    </div>
+  </div>
+  <div id="panel-betweenness" class="panel">
+    <div class="panel-grid">
+      <div class="rank-grid" id="ranks-betweenness"></div>
+      <div class="detail-panel" id="detail-betweenness"><div class="no-selection"><div class="icon">👆</div><p>Click any company row to explore its revenue, ownership level, and network connections.</p></div></div>
+    </div>
+  </div>
+  <div id="panel-eigenvector" class="panel">
+    <div class="panel-grid">
+      <div class="rank-grid" id="ranks-eigenvector"></div>
+      <div class="detail-panel" id="detail-eigenvector"><div class="no-selection"><div class="icon">👆</div><p>Click any company row to explore its revenue, ownership level, and network connections.</p></div></div>
+    </div>
+  </div>
+
+  <!-- Network figure summary -->
+  <div class="network-figure-section">
+    <div class="section-label">Network Structural Figures</div>
+    <div class="figure-grid">
+
+      <!-- FIGURE 1: Degree distribution bar chart -->
+      <div class="figure-card" style="--fig-color:var(--accent3)">
+        <div class="figure-label">Figure 1</div>
+        <div class="figure-title">Degree Distribution</div>
+        <div class="figure-body" style="margin-bottom:10px">
+          How many companies have each number of connections. <strong>75.7%</strong> of all 5,042 companies have exactly 2 connections — they sit in the middle of an ownership chain with one parent and one subsidiary. Only a tiny fraction (like KT Sports at 13) act as real hubs.
+        </div>
+        <svg viewBox="0 0 320 160" xmlns="http://www.w3.org/2000/svg" font-family="DM Mono, monospace" style="width:100%;display:block">
+          <!-- axes -->
+          <line x1="40" y1="10" x2="40" y2="130" stroke="#1f2d45" stroke-width="1"/>
+          <line x1="40" y1="130" x2="310" y2="130" stroke="#1f2d45" stroke-width="1"/>
+          <!-- y-axis labels -->
+          <text x="35" y="133" text-anchor="end" fill="#64748b" font-size="8">0</text>
+          <text x="35" y="100" text-anchor="end" fill="#64748b" font-size="8">1k</text>
+          <text x="35" y="67"  text-anchor="end" fill="#64748b" font-size="8">2k</text>
+          <text x="35" y="34"  text-anchor="end" fill="#64748b" font-size="8">3k</text>
+          <!-- degree=2 bar: 3815 nodes (75.7% of 5042) → tallest -->
+          <rect x="48" y="14" width="38" height="116" fill="#7c3aed" rx="3" opacity="0.85"/>
+          <text x="67" y="11" text-anchor="middle" fill="#a78bfa" font-size="7.5" font-weight="600">3,815</text>
+          <!-- degree=3 bar: ~350 nodes -->
+          <rect x="96" y="116" width="30" height="14" fill="#7c3aed" rx="2" opacity="0.6"/>
+          <text x="111" y="113" text-anchor="middle" fill="#a78bfa" font-size="7">~350</text>
+          <!-- degree=4 bar: ~280 -->
+          <rect x="132" y="119" width="30" height="11" fill="#7c3aed" rx="2" opacity="0.5"/>
+          <text x="147" y="116" text-anchor="middle" fill="#a78bfa" font-size="7">~280</text>
+          <!-- degree=5 bar: ~120 -->
+          <rect x="168" y="125" width="22" height="5" fill="#7c3aed" rx="2" opacity="0.45"/>
+          <!-- degree=6 bar: ~90 -->
+          <rect x="196" y="126" width="18" height="4" fill="#7c3aed" rx="2" opacity="0.4"/>
+          <!-- degree=7+ bar: ~60 -->
+          <rect x="220" y="127" width="14" height="3" fill="#7c3aed" rx="2" opacity="0.35"/>
+          <!-- degree=10+ bar (elite hubs) -->
+          <rect x="240" y="128" width="10" height="2" fill="#ec4899" rx="1" opacity="0.9"/>
+          <!-- degree=13 (KT Sports) -->
+          <rect x="256" y="128" width="8" height="2" fill="#ec4899" rx="1"/>
+          <text x="260" y="125" text-anchor="middle" fill="#f472b6" font-size="6.5">KT Sports</text>
+          <!-- x-axis labels -->
+          <text x="67"  y="142" text-anchor="middle" fill="#64748b" font-size="7.5">2</text>
+          <text x="111" y="142" text-anchor="middle" fill="#64748b" font-size="7.5">3</text>
+          <text x="147" y="142" text-anchor="middle" fill="#64748b" font-size="7.5">4</text>
+          <text x="183" y="142" text-anchor="middle" fill="#64748b" font-size="7.5">5–6</text>
+          <text x="230" y="142" text-anchor="middle" fill="#64748b" font-size="7.5">7–9</text>
+          <text x="270" y="142" text-anchor="middle" fill="#64748b" font-size="7.5">10–13</text>
+          <text x="175" y="158" text-anchor="middle" fill="#475569" font-size="7.5">Number of connections (degree)</text>
+          <!-- axis title -->
+          <text x="8" y="80" text-anchor="middle" fill="#475569" font-size="7" transform="rotate(-90,8,80)">Companies</text>
+        </svg>
+      </div>
+
+      <!-- FIGURE 2: Betweenness top-5 horizontal bar -->
+      <div class="figure-card" style="--fig-color:var(--accent5)">
+        <div class="figure-label">Figure 2</div>
+        <div class="figure-title">Top 5 Brokers — Betweenness Centrality</div>
+        <div class="figure-body" style="margin-bottom:10px">
+          Betweenness measures how often a company sits on the shortest path between two other companies. A company with high betweenness acts as a <strong>bridge</strong> — information and ownership links must pass through it. Removing it would disconnect parts of the network.
+        </div>
+        <svg viewBox="0 0 320 155" xmlns="http://www.w3.org/2000/svg" font-family="DM Mono, monospace" style="width:100%;display:block">
+          <!-- bars (max = 0.1642, scale to 230px wide) -->
+          <!-- 1: Korea Economic Daily 0.1642 → 230 -->
+          <rect x="2" y="8"  width="230" height="18" fill="#f59e0b" rx="3" opacity="0.85"/>
+          <text x="236" y="21" fill="#fbbf24" font-size="7.5" font-weight="600">0.1642</text>
+          <text x="5"   y="21" fill="#0a0e1a" font-size="7" font-weight="700">Korea Economic Daily</text>
+          <!-- 2: Flaxres GmbH 0.1585 → 222 -->
+          <rect x="2" y="33" width="222" height="18" fill="#f59e0b" rx="3" opacity="0.7"/>
+          <text x="228" y="46" fill="#fbbf24" font-size="7.5">0.1585</text>
+          <text x="5"   y="46" fill="#0a0e1a" font-size="7">Flaxres GmbH (DE)</text>
+          <!-- 3: Hyundai M Partners 0.1551 → 217 -->
+          <rect x="2" y="58" width="217" height="18" fill="#f59e0b" rx="3" opacity="0.6"/>
+          <text x="223" y="71" fill="#fbbf24" font-size="7.5">0.1551</text>
+          <text x="5"   y="71" fill="#0a0e1a" font-size="7">Hyundai M Partners</text>
+          <!-- 4: Beijing Samsung RE 0.1522 → 213 -->
+          <rect x="2" y="83" width="213" height="18" fill="#f59e0b" rx="3" opacity="0.5"/>
+          <text x="219" y="96" fill="#fbbf24" font-size="7.5">0.1522</text>
+          <text x="5"   y="96" fill="#0a0e1a" font-size="7">Beijing Samsung Real Estate</text>
+          <!-- 5: Gencurix 0.1373 → 193 -->
+          <rect x="2" y="108" width="193" height="18" fill="#f59e0b" rx="3" opacity="0.4"/>
+          <text x="199" y="121" fill="#fbbf24" font-size="7.5">0.1373</text>
+          <text x="5"   y="121" fill="#0a0e1a" font-size="7">Gencurix Inc.</text>
+          <!-- axis -->
+          <line x1="2" y1="133" x2="290" y2="133" stroke="#1f2d45" stroke-width="1"/>
+          <text x="2"   y="143" fill="#475569" font-size="7">0</text>
+          <text x="57"  y="143" fill="#475569" font-size="7">0.04</text>
+          <text x="115" y="143" fill="#475569" font-size="7">0.08</text>
+          <text x="172" y="143" fill="#475569" font-size="7">0.12</text>
+          <text x="228" y="143" fill="#475569" font-size="7">0.16</text>
+          <text x="145" y="155" text-anchor="middle" fill="#475569" font-size="7.5">Betweenness score (proportion of shortest paths)</text>
+        </svg>
+      </div>
+
+      <!-- FIGURE 3: Eigenvector top-5 horizontal bar -->
+      <div class="figure-card" style="--fig-color:var(--accent6)">
+        <div class="figure-label">Figure 3</div>
+        <div class="figure-title">Top 5 — Eigenvector Centrality (KT Cluster)</div>
+        <div class="figure-body" style="margin-bottom:10px">
+          Eigenvector measures influence through <strong>well-connected neighbours</strong> — being connected to powerful companies makes you powerful. All top 10 are from the KT Group, forming a tight, internally influential cluster.
+        </div>
+        <svg viewBox="0 0 320 155" xmlns="http://www.w3.org/2000/svg" font-family="DM Mono, monospace" style="width:100%;display:block">
+          <!-- max 0.5701 → 230px -->
+          <!-- 1: KT Sports 0.5701 → 230 -->
+          <rect x="2" y="8"  width="230" height="18" fill="#ec4899" rx="3" opacity="0.9"/>
+          <text x="236" y="21" fill="#f472b6" font-size="7.5" font-weight="600">0.5701</text>
+          <text x="5"   y="21" fill="#fff" font-size="7" font-weight="700">KT Sports</text>
+          <!-- 2: K-Realty 11th 0.2432 → 98 -->
+          <rect x="2" y="33" width="98"  height="18" fill="#ec4899" rx="3" opacity="0.7"/>
+          <text x="104" y="46" fill="#f472b6" font-size="7.5">0.2432</text>
+          <text x="5"   y="46" fill="#0a0e1a" font-size="7">K-Realty 11th REIT</text>
+          <!-- 3: K-Realty REIT 5 0.2363 → 95 -->
+          <rect x="2" y="58" width="95"  height="18" fill="#ec4899" rx="3" opacity="0.6"/>
+          <text x="101" y="71" fill="#f472b6" font-size="7.5">0.2363</text>
+          <text x="5"   y="71" fill="#0a0e1a" font-size="7">K-Realty REIT 5</text>
+          <!-- 4: KT Alpha 0.2128 → 86 -->
+          <rect x="2" y="83" width="86"  height="18" fill="#ec4899" rx="3" opacity="0.5"/>
+          <text x="92"  y="96" fill="#f472b6" font-size="7.5">0.2128</text>
+          <text x="5"   y="96" fill="#0a0e1a" font-size="7">KT Alpha Co., Ltd.</text>
+          <!-- 5: KT ENA 0.1790 → 72 -->
+          <rect x="2" y="108" width="72"  height="18" fill="#ec4899" rx="3" opacity="0.45"/>
+          <text x="78"  y="121" fill="#f472b6" font-size="7.5">0.1790</text>
+          <text x="5"   y="121" fill="#0a0e1a" font-size="7">KT ENA Co., Ltd</text>
+          <!-- axis -->
+          <line x1="2" y1="133" x2="290" y2="133" stroke="#1f2d45" stroke-width="1"/>
+          <text x="2"   y="143" fill="#475569" font-size="7">0</text>
+          <text x="55"  y="143" fill="#475569" font-size="7">0.14</text>
+          <text x="112" y="143" fill="#475569" font-size="7">0.28</text>
+          <text x="170" y="143" fill="#475569" font-size="7">0.42</text>
+          <text x="228" y="143" fill="#475569" font-size="7">0.57</text>
+          <text x="145" y="155" text-anchor="middle" fill="#475569" font-size="7.5">Eigenvector score (KT Sports is 2.3× higher than rank 2)</text>
+        </svg>
+      </div>
+
+      <!-- FIGURE 4: Closeness top-5 — compressed range shown clearly -->
+      <div class="figure-card" style="--fig-color:var(--accent1)">
+        <div class="figure-label">Figure 4</div>
+        <div class="figure-title">Top 5 — Closeness Centrality</div>
+        <div class="figure-body" style="margin-bottom:10px">
+          Closeness measures how quickly a company can reach every other company in the network. The values are very tightly packed (all between 0.0236–0.0238) because the network is so large. The chart zooms in to show the real differences clearly.
+        </div>
+        <svg viewBox="0 0 320 155" xmlns="http://www.w3.org/2000/svg" font-family="DM Mono, monospace" style="width:100%;display:block">
+          <!-- Zoomed range: 0.02355 to 0.02385. width=230px for range 0.0003 -->
+          <!-- scale: 1 unit = 230/0.0003 = 766,667px per unit -->
+          <!-- 1: Korea Econ Daily 0.023795 → offset (0.023795-0.02355)*766667 = 190 -->
+          <rect x="2" y="8"  width="190" height="18" fill="#00d4ff" rx="3" opacity="0.9"/>
+          <text x="196" y="21" fill="#7dd3fc" font-size="7.5" font-weight="600">0.023795</text>
+          <text x="5"   y="21" fill="#0a0e1a" font-size="7" font-weight="700">Korea Economic Daily</text>
+          <!-- 2: HMC 0.023780 → (0.023780-0.02355)*766667=179 -->
+          <rect x="2" y="33" width="179" height="18" fill="#00d4ff" rx="3" opacity="0.75"/>
+          <text x="185" y="46" fill="#7dd3fc" font-size="7.5">0.023780</text>
+          <text x="5"   y="46" fill="#0a0e1a" font-size="7">Hyundai Motor Company</text>
+          <!-- 3: Channel A 0.023726 → 143 -->
+          <rect x="2" y="58" width="143" height="18" fill="#00d4ff" rx="3" opacity="0.6"/>
+          <text x="149" y="71" fill="#7dd3fc" font-size="7.5">0.023726</text>
+          <text x="5"   y="71" fill="#0a0e1a" font-size="7">Channel A Corporation</text>
+          <!-- 4: PT HLI 0.023700 → 123 -->
+          <rect x="2" y="83" width="123" height="18" fill="#00d4ff" rx="3" opacity="0.5"/>
+          <text x="129" y="96" fill="#7dd3fc" font-size="7.5">0.023700</text>
+          <text x="5"   y="96" fill="#0a0e1a" font-size="7">PT HLI Green Power (ID)</text>
+          <!-- 5: Hyundai Futurenet 0.023648 → 83 -->
+          <rect x="2" y="108" width="83"  height="18" fill="#00d4ff" rx="3" opacity="0.4"/>
+          <text x="89"  y="121" fill="#7dd3fc" font-size="7.5">0.023648</text>
+          <text x="5"   y="121" fill="#0a0e1a" font-size="7">Hyundai Futurenet</text>
+          <!-- axis (zoomed) -->
+          <line x1="2" y1="133" x2="290" y2="133" stroke="#1f2d45" stroke-width="1"/>
+          <text x="2"   y="143" fill="#475569" font-size="6.5">0.02355</text>
+          <text x="80"  y="143" fill="#475569" font-size="6.5">0.02365</text>
+          <text x="158" y="143" fill="#475569" font-size="6.5">0.02375</text>
+          <text x="228" y="143" fill="#475569" font-size="6.5">0.02382</text>
+          <text x="145" y="155" text-anchor="middle" fill="#475569" font-size="7.5">Closeness score (axis zoomed — differences are tiny)</text>
+        </svg>
+      </div>
+
+      <!-- FIGURE 5: Network metrics gauge / comparison bars -->
+      <div class="figure-card" style="--fig-color:var(--accent4)">
+        <div class="figure-label">Figure 5</div>
+        <div class="figure-title">Network Metrics — Sparsity &amp; Clustering</div>
+        <div class="figure-body" style="margin-bottom:10px">
+          Both density and clustering are near zero, which means companies are mostly in long chains rather than tight groups. This creates many <strong>structural holes</strong> — gaps between clusters that well-placed companies can bridge for strategic advantage (Burt, 2004).
+        </div>
+        <svg viewBox="0 0 320 155" xmlns="http://www.w3.org/2000/svg" font-family="DM Mono, monospace" style="width:100%;display:block">
+          <!-- Density gauge: 0.000496 / 1.0 → tiny bar (0.115px, invisible), show on log scale or as % -->
+          <!-- Show as % of max possible. Density bar as visual -->
+          <text x="10" y="22" fill="#94a3b8" font-size="8" font-weight="600">DENSITY  (actual vs. a fully connected network)</text>
+          <!-- full possible bar -->
+          <rect x="10" y="28" width="260" height="14" fill="#1f2d45" rx="3"/>
+          <!-- actual: 0.000496 → 0.05% of full → 0.13px, show symbolic -->
+          <rect x="10" y="28" width="1.5" height="14" fill="#10b981" rx="1"/>
+          <text x="16" y="39" fill="#10b981" font-size="8">0.000496 (0.05% of possible)</text>
+          <text x="272" y="39" fill="#475569" font-size="7.5">1.0</text>
+
+          <text x="10" y="60" fill="#94a3b8" font-size="8" font-weight="600">AVG. CLUSTERING  (0 = no triangles, 1 = fully interconnected)</text>
+          <rect x="10" y="66" width="260" height="14" fill="#1f2d45" rx="3"/>
+          <rect x="10" y="66" width="2.7"  height="14" fill="#10b981" rx="1"/>
+          <text x="18" y="77" fill="#10b981" font-size="8">0.0105 (1% of possible)</text>
+          <text x="272" y="77" fill="#475569" font-size="7.5">1.0</text>
+
+          <text x="10" y="96" fill="#94a3b8" font-size="8" font-weight="600">WHAT THIS MEANS FOR THE NETWORK</text>
+          <rect x="10" y="102" width="295" height="1" fill="#1f2d45"/>
+          <text x="10" y="116" fill="#64748b" font-size="7.5">● Companies are mostly in long chains, not tight clusters</text>
+          <text x="10" y="129" fill="#64748b" font-size="7.5">● Structural holes dominate → brokerage &amp; exploration strategy</text>
+          <text x="10" y="142" fill="#64748b" font-size="7.5">● Removing top 3 brokers would split the network</text>
+          <text x="10" y="155" fill="#64748b" font-size="7.5">● Mean degree 2.50 confirms branching tree, not dense mesh</text>
+        </svg>
+      </div>
+
+      <!-- FIGURE 6: Data completeness donut-style bars -->
+      <div class="figure-card" style="--fig-color:var(--accent2)">
+        <div class="figure-label">Figure 6</div>
+        <div class="figure-title">Data Completeness (5,042 companies)</div>
+        <div class="figure-body" style="margin-bottom:10px">
+          Most companies are missing financial data. The bars below show what percentage of the 5,042 companies actually have data for each field. Missing values were stored as "n.a." in the dataset.
+        </div>
+        <svg viewBox="0 0 320 155" xmlns="http://www.w3.org/2000/svg" font-family="DM Mono, monospace" style="width:100%;display:block">
+          <!-- Operating Revenue: 39.9% have data → 60.1% missing -->
+          <text x="10" y="22" fill="#94a3b8" font-size="8" font-weight="600">Operating Revenue (USD thousands)</text>
+          <rect x="10" y="28" width="260" height="14" fill="#1f2d45" rx="3"/>
+          <rect x="10" y="28" width="103" height="14" fill="#ff6b35" rx="3"/>
+          <text x="117" y="39" fill="#94a3b8" font-size="7.5">39.9% have data · 60.1% missing</text>
+
+          <!-- Employees: 27.0% have data -->
+          <text x="10" y="58" fill="#94a3b8" font-size="8" font-weight="600">Number of Employees</text>
+          <rect x="10" y="64" width="260" height="14" fill="#1f2d45" rx="3"/>
+          <rect x="10" y="64" width="70"  height="14" fill="#ff6b35" rx="3"/>
+          <text x="84"  y="75" fill="#94a3b8" font-size="7.5">27.0% have data · 73.0% missing</text>
+
+          <!-- Country: 94.8% have data -->
+          <text x="10" y="94" fill="#94a3b8" font-size="8" font-weight="600">Country</text>
+          <rect x="10" y="100" width="260" height="14" fill="#1f2d45" rx="3"/>
+          <rect x="10" y="100" width="246" height="14" fill="#ff6b35" rx="3"/>
+          <text x="258" y="111" fill="#94a3b8" font-size="7.5">94.8%</text>
+
+          <!-- Level of ownership: 100% present -->
+          <text x="10" y="130" fill="#94a3b8" font-size="8" font-weight="600">Level of Ownership</text>
+          <rect x="10" y="136" width="260" height="14" fill="#1f2d45" rx="3"/>
+          <rect x="10" y="136" width="260" height="14" fill="#ff6b35" rx="3"/>
+          <text x="145" y="147" text-anchor="middle" fill="#0a0e1a" font-size="7.5" font-weight="700">100% complete</text>
+
+          <!-- Legend -->
+          <rect x="10" y="155" width="10" height="6" fill="#ff6b35" rx="1"/>
+          <text x="24" y="161" fill="#475569" font-size="7">= has data</text>
+          <rect x="80" y="155" width="10" height="6" fill="#1f2d45" rx="1"/>
+          <text x="94" y="161" fill="#475569" font-size="7">= missing (n.a.)</text>
+        </svg>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Mini network SVG -->
+  <div class="mini-network-wrap">
+    <div class="section-label">Network Topology — Schematic (Top Nodes by Centrality)</div>
+    <div class="mini-net-svg-wrap">
+      <svg viewBox="0 0 900 440" xmlns="http://www.w3.org/2000/svg" font-family="DM Mono, monospace">
+        <defs>
+          <radialGradient id="glow1" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#00d4ff" stop-opacity="0.3"/><stop offset="100%" stop-color="#00d4ff" stop-opacity="0"/></radialGradient>
+          <radialGradient id="glow2" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#ec4899" stop-opacity="0.3"/><stop offset="100%" stop-color="#ec4899" stop-opacity="0"/></radialGradient>
+          <radialGradient id="glow3" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#f59e0b" stop-opacity="0.3"/><stop offset="100%" stop-color="#f59e0b" stop-opacity="0"/></radialGradient>
+          <marker id="arr" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#1f2d45"/></marker>
+        </defs>
+
+        <!-- Background glow halos -->
+        <ellipse cx="290" cy="220" rx="100" ry="80" fill="url(#glow1)" opacity="0.6"/>
+        <ellipse cx="680" cy="150" rx="90" ry="70" fill="url(#glow2)" opacity="0.6"/>
+        <ellipse cx="640" cy="330" rx="80" ry="60" fill="url(#glow3)" opacity="0.5"/>
+
+        <!-- EDGES — light thin lines -->
+        <!-- HMC connections -->
+        <line x1="290" y1="220" x2="150" y2="130" stroke="#1f3a55" stroke-width="1.5"/>
+        <line x1="290" y1="220" x2="150" y2="310" stroke="#1f3a55" stroke-width="1.5"/>
+        <line x1="290" y1="220" x2="410" y2="180" stroke="#1f3a55" stroke-width="1.5"/>
+        <line x1="290" y1="220" x2="420" y2="260" stroke="#1f3a55" stroke-width="1.5"/>
+        <line x1="290" y1="220" x2="200" y2="340" stroke="#1f3a55" stroke-width="1.5"/>
+        <!-- Korea Economic Daily connections -->
+        <line x1="410" y1="180" x2="540" y2="120" stroke="#1f3a55" stroke-width="1.5"/>
+        <line x1="410" y1="180" x2="530" y2="200" stroke="#1f3a55" stroke-width="1.5"/>
+        <line x1="410" y1="180" x2="420" y2="260" stroke="#253347" stroke-width="1"/>
+        <!-- KT Sports connections (tight cluster) -->
+        <line x1="680" y1="150" x2="750" y2="100" stroke="#3b1f60" stroke-width="1.5"/>
+        <line x1="680" y1="150" x2="770" y2="160" stroke="#3b1f60" stroke-width="1.5"/>
+        <line x1="680" y1="150" x2="760" y2="210" stroke="#3b1f60" stroke-width="1.5"/>
+        <line x1="680" y1="150" x2="690" y2="60" stroke="#3b1f60" stroke-width="1.5"/>
+        <line x1="680" y1="150" x2="600" y2="80" stroke="#3b1f60" stroke-width="1.2"/>
+        <line x1="680" y1="150" x2="610" y2="150" stroke="#3b1f60" stroke-width="1.2"/>
+        <!-- Betweenness broker connections -->
+        <line x1="540" y1="120" x2="640" y2="330" stroke="#2a2010" stroke-width="1" stroke-dasharray="4 3"/>
+        <line x1="420" y1="260" x2="640" y2="330" stroke="#2a2010" stroke-width="1" stroke-dasharray="4 3"/>
+        <!-- Hyundai M Partners -->
+        <line x1="150" y1="310" x2="80" y2="380" stroke="#1f3a55" stroke-width="1"/>
+        <line x1="150" y1="310" x2="110" y2="260" stroke="#1f3a55" stroke-width="1"/>
+
+        <!-- HMC — MAIN NODE -->
+        <circle cx="290" cy="220" r="36" fill="#0a1525" stroke="#00d4ff" stroke-width="2.5"/>
+        <circle cx="290" cy="220" r="28" fill="#0d1e38" stroke="#00d4ff" stroke-width="1" opacity="0.5"/>
+        <text x="290" y="215" text-anchor="middle" fill="#00d4ff" font-size="9" font-weight="700">HYUNDAI</text>
+        <text x="290" y="226" text-anchor="middle" fill="#00d4ff" font-size="9" font-weight="700">MOTOR CO.</text>
+        <text x="290" y="238" text-anchor="middle" fill="#60a5fa" font-size="7.5">DEG 10 | REV 119k</text>
+
+        <!-- Korea Economic Daily -->
+        <circle cx="410" cy="180" r="26" fill="#0a1525" stroke="#00d4ff" stroke-width="2"/>
+        <text x="410" y="176" text-anchor="middle" fill="#7dd3fc" font-size="7.5" font-weight="700">KOREA ECON</text>
+        <text x="410" y="187" text-anchor="middle" fill="#7dd3fc" font-size="7.5" font-weight="700">DAILY</text>
+        <text x="410" y="198" text-anchor="middle" fill="#64748b" font-size="7">BET:0.164</text>
+
+        <!-- Hyundai M Partners -->
+        <circle cx="150" cy="310" r="22" fill="#0a1525" stroke="#4ade80" stroke-width="1.5"/>
+        <text x="150" y="307" text-anchor="middle" fill="#86efac" font-size="7" font-weight="700">HMC M</text>
+        <text x="150" y="317" text-anchor="middle" fill="#86efac" font-size="7" font-weight="700">PARTNERS</text>
+
+        <!-- PT HLI Green Power -->
+        <circle cx="150" cy="130" r="18" fill="#0a1525" stroke="#38bdf8" stroke-width="1.5"/>
+        <text x="150" y="127" text-anchor="middle" fill="#7dd3fc" font-size="7">PT HLI</text>
+        <text x="150" y="137" text-anchor="middle" fill="#7dd3fc" font-size="7">GREEN PWR</text>
+
+        <!-- HMG Global -->
+        <circle cx="200" cy="340" r="16" fill="#0a1525" stroke="#38bdf8" stroke-width="1"/>
+        <text x="200" y="337" text-anchor="middle" fill="#93c5fd" font-size="6.5">HMG</text>
+        <text x="200" y="347" text-anchor="middle" fill="#93c5fd" font-size="6.5">GLOBAL</text>
+
+        <!-- IONITY -->
+        <circle cx="420" cy="260" r="18" fill="#0a1525" stroke="#f59e0b" stroke-width="1.5"/>
+        <text x="420" y="257" text-anchor="middle" fill="#fcd34d" font-size="7">IONITY</text>
+        <text x="420" y="267" text-anchor="middle" fill="#fcd34d" font-size="6.5">HOLDING</text>
+
+        <!-- KT SPORTS — EIGENVECTOR KING -->
+        <circle cx="680" cy="150" r="34" fill="#1a0a30" stroke="#ec4899" stroke-width="2.5"/>
+        <circle cx="680" cy="150" r="26" fill="#1a0a2a" stroke="#ec4899" stroke-width="1" opacity="0.4"/>
+        <text x="680" y="145" text-anchor="middle" fill="#f472b6" font-size="9" font-weight="700">KT SPORTS</text>
+        <text x="680" y="156" text-anchor="middle" fill="#f472b6" font-size="8" font-weight="700">CO.,LTD</text>
+        <text x="680" y="167" text-anchor="middle" fill="#a78bfa" font-size="7">EIG:0.570 DEG:13</text>
+
+        <!-- KT cluster satellites -->
+        <circle cx="750" cy="100" r="14" fill="#1a0a2a" stroke="#c084fc" stroke-width="1.5"/>
+        <text x="750" y="97" text-anchor="middle" fill="#d8b4fe" font-size="6.5">KT ALPHA</text>
+        <text x="750" y="107" text-anchor="middle" fill="#d8b4fe" font-size="6.5">CO.,LTD</text>
+
+        <circle cx="770" cy="160" r="13" fill="#1a0a2a" stroke="#c084fc" stroke-width="1.2"/>
+        <text x="770" y="157" text-anchor="middle" fill="#d8b4fe" font-size="6">KT ENA</text>
+        <text x="770" y="167" text-anchor="middle" fill="#d8b4fe" font-size="6">CO.,LTD</text>
+
+        <circle cx="760" cy="210" r="13" fill="#1a0a2a" stroke="#c084fc" stroke-width="1.2"/>
+        <text x="760" y="207" text-anchor="middle" fill="#d8b4fe" font-size="6">KTCS</text>
+        <text x="760" y="217" text-anchor="middle" fill="#d8b4fe" font-size="6">CORP.</text>
+
+        <circle cx="690" cy="60" r="12" fill="#1a0a2a" stroke="#a78bfa" stroke-width="1"/>
+        <text x="690" y="57" text-anchor="middle" fill="#c4b5fd" font-size="6">K-REALTY</text>
+        <text x="690" y="67" text-anchor="middle" fill="#c4b5fd" font-size="6">11TH REIT</text>
+
+        <circle cx="600" cy="80" r="11" fill="#1a0a2a" stroke="#a78bfa" stroke-width="1"/>
+        <text x="600" y="84" text-anchor="middle" fill="#c4b5fd" font-size="6">FUNDA</text>
+
+        <circle cx="610" cy="150" r="11" fill="#1a0a2a" stroke="#a78bfa" stroke-width="1"/>
+        <text x="610" y="154" text-anchor="middle" fill="#c4b5fd" font-size="6">PLAY D</text>
+
+        <!-- Flaxres GmbH (broker) -->
+        <circle cx="540" cy="120" r="16" fill="#0a1525" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="3 2"/>
+        <text x="540" y="117" text-anchor="middle" fill="#fbbf24" font-size="7">FLAXRES</text>
+        <text x="540" y="127" text-anchor="middle" fill="#fbbf24" font-size="6.5">GmbH (DE)</text>
+
+        <!-- Samsung Global Research -->
+        <circle cx="530" cy="200" r="16" fill="#0a1525" stroke="#10b981" stroke-width="1.5"/>
+        <text x="530" y="197" text-anchor="middle" fill="#6ee7b7" font-size="6.5">SAMSUNG</text>
+        <text x="530" y="207" text-anchor="middle" fill="#6ee7b7" font-size="6.5">GLOBAL RES</text>
+
+        <!-- Betweenness broker cluster (Samsung funds) -->
+        <circle cx="640" cy="330" r="20" fill="#1a1200" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="4 2"/>
+        <text x="640" y="326" text-anchor="middle" fill="#fbbf24" font-size="6.5">SAMSUNG</text>
+        <text x="640" y="336" text-anchor="middle" fill="#fbbf24" font-size="6.5">FUNDS</text>
+        <text x="640" y="346" text-anchor="middle" fill="#92400e" font-size="6">(broker cluster)</text>
+
+        <!-- LEGEND -->
+        <rect x="20" y="380" width="260" height="52" rx="6" fill="#111827" stroke="#1f2d45"/>
+        <text x="30" y="397" fill="#64748b" font-size="8" font-weight="600">LEGEND</text>
+        <circle cx="45" cy="412" r="7" fill="#0a1525" stroke="#00d4ff" stroke-width="2"/>
+        <text x="57" y="416" fill="#94a3b8" font-size="8">HMC / Hyundai group</text>
+        <circle cx="155" cy="412" r="7" fill="#1a0a30" stroke="#ec4899" stroke-width="2"/>
+        <text x="167" y="416" fill="#94a3b8" font-size="8">KT cluster</text>
+        <line x1="30" y1="426" x2="50" y2="426" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="3 2"/>
+        <text x="57" y="430" fill="#94a3b8" font-size="8">Broker node</text>
+        <line x1="155" y1="426" x2="175" y2="426" stroke="#1f2d45" stroke-width="1.5"/>
+        <text x="182" y="430" fill="#94a3b8" font-size="8">Ownership link</text>
+      </svg>
+    </div>
+  </div>
+
+</div><!-- /container -->
+
+<script>
+// ── DATA ─────────────────────────────────────────────────────────────────
+const data = {
+  employees: {
+    color: 'var(--accent1)', hex: '#00d4ff',
+    scoreLabel: 'Employees',
+    items: [
+      { rank:1, name:'SAMSUNG ELECTRONICS VIETNAM THAI NGUYEN CO. LTD', value:'65,448', raw:65448, rev:'23,476', emp:'65,448', country:'VN', level:'Level 7', degree:2, conns:[] },
+      { rank:2, name:'CORNING INCORPORATED', value:'56,300', raw:56300, rev:'13,118', emp:'56,300', country:'US', level:'Level 7', degree:2, conns:[] },
+      { rank:3, name:'SAMSUNG ELECTRONICS VIETNAM CO. LTD', value:'48,909', raw:48909, rev:'15,466', emp:'48,909', country:'VN', level:'Level 7', degree:2, conns:[] },
+      { rank:4, name:'HARMAN INTERNATIONAL INDUSTRIES INC', value:'26,000', raw:26000, rev:'6,911', emp:'26,000', country:'US', level:'Level 7', degree:2, conns:[] },
+      { rank:5, name:'HYUNDAI MOTOR INDIA LIMITED', value:'17,032', raw:17032, rev:'8,100', emp:'17,032', country:'IN', level:'Ultimate Owner', degree:2, conns:[] },
+      { rank:6, name:'OLA ELECTRIC MOBILITY LIMITED', value:'13,727', raw:13727, rev:'527', emp:'13,727', country:'IN', level:'Intermediate', degree:4, conns:[] },
+      { rank:7, name:'SHINHAN BANK', value:'13,083', raw:13083, rev:'7,018', emp:'13,083', country:'KR', level:'Level 7', degree:2, conns:[] },
+      { rank:8, name:'KTIS CORPORATION', value:'8,111', raw:8111, rev:'410', emp:'8,111', country:'KR', level:'Level 6', degree:2, conns:[] },
+      { rank:9, name:'SAMSUNG MEXICANA SA DE CV', value:'5,300', raw:5300, rev:'n.a.', emp:'5,300', country:'MX', level:'Level 7', degree:2, conns:[] },
+      { rank:10, name:'SAMSUNG DISPLAY VIETNAM CO., LTD.', value:'5,271', raw:5271, rev:'18,541', emp:'5,271', country:'VN', level:'Level 7', degree:2, conns:[] },
+    ]
+  },
+  revenue: {
+    color: 'var(--accent2)', hex: '#ff6b35',
+    scoreLabel: 'Op. Rev. (USD thousands)',
+    items: [
+      { rank:1, name:'SAMSUNG ELECTRONICS CO.,LTD.', value:'204,674', raw:204674, rev:'204,674', emp:'n.a.', country:'KR', level:'Level 7', degree:6, conns:[] },
+      { rank:2, name:'HYUNDAI MOTOR COMPANY', value:'119,204', raw:119204, rev:'119,204', emp:'n.a.', country:'KR', level:'Level 5', degree:10, conns:[] },
+      { rank:3, name:'AXA SOCIÉTÉ ANONYME', value:'89,426', raw:89426, rev:'89,426', emp:'n.a.', country:'FR', level:'Level 7', degree:2, conns:[] },
+      { rank:4, name:'KIA CORPORATION', value:'73,094', raw:73094, rev:'73,094', emp:'n.a.', country:'KR', level:'Ultimate Owner', degree:2, conns:[] },
+      { rank:5, name:'HD HYUNDAI CO.,LTD.', value:'46,099', raw:46099, rev:'46,099', emp:'n.a.', country:'KR', level:'Ultimate Owner', degree:2, conns:[] },
+      { rank:6, name:'HYUNDAI MOBIS CO.,LTD.', value:'38,936', raw:38936, rev:'38,936', emp:'n.a.', country:'KR', level:'Level 4', degree:6, conns:[] },
+      { rank:7, name:'SAMSUNG C&T CORPORATION', value:'28,641', raw:28641, rev:'28,641', emp:'n.a.', country:'KR', level:'Level 4', degree:4, conns:[] },
+      { rank:8, name:'SHANGHAI SAMSUNG SEMICONDUCTOR CO., LTD.', value:'27,715', raw:27715, rev:'27,715', emp:'n.a.', country:'CN', level:'Level 7', degree:2, conns:[] },
+      { rank:9, name:'SAMSUNG ELEC. VIETNAM THAI NGUYEN CO. LTD', value:'23,476', raw:23476, rev:'23,476', emp:'65,448', country:'VN', level:'Level 7', degree:2, conns:[] },
+      { rank:10, name:'HYUNDAI ENGINEERING & CONSTRUCTION CO.,LTD.', value:'22,224', raw:22224, rev:'22,224', emp:'n.a.', country:'KR', level:'Level 5', degree:5, conns:[] },
+    ]
+  },
+  degree: {
+    color: 'var(--accent3)', hex: '#7c3aed',
+    scoreLabel: 'Connections (degree)',
+    items: [
+      { rank:1, name:'KT SPORTS CO.,LTD', value:'13 connections', raw:13, rev:'55', emp:'105', country:'KR', level:'Level 7', degree:13, conns:[
+        {name:'FUNDA CO.,LTD',rev:'0',level:'Level 4',country:'KR',degree:4},
+        {name:'KT ALPHA CO., LTD.',rev:'264',level:'Level 6',country:'KR',degree:4},
+        {name:'NGENEBIO CO.,LTD.',rev:'3',level:'Level 7',country:'KR',degree:4},
+        {name:'K-REALTY 11TH REIT',rev:'1',level:'Level 7',country:'KR',degree:4},
+        {name:'KT ENA CO., LTD',rev:'75',level:'Level 7',country:'KR',degree:4},
+        {name:'PLAY D CO.,LTD.',rev:'26',level:'Level 7',country:'KR',degree:4},
+        {name:'K-REALTY REIT 5',rev:'n.a.',level:'Level 7',country:'KR',degree:3},
+        {name:'SUSEO STATION CTC',rev:'n.a.',level:'Level 7',country:'KR',degree:2},
+      ]},
+      { rank:2, name:'HYUNDAI M PARTNERS CO., LTD', value:'10 connections', raw:10, rev:'29', emp:'n.a.', country:'KR', level:'Intermediate', degree:10, conns:[
+        {name:'HYUNDAI CAPITAL UK LIMITED',rev:'296',level:'Intermediate',country:'GB',degree:6},
+        {name:'KORAMCO LIFE INFRA REIT',rev:'25',level:'Intermediate',country:'KR',degree:4},
+        {name:'HYUNDAI MIRAERO CO., LTD',rev:'0',level:'Level 7',country:'KR',degree:4},
+        {name:'HYUNDAI M SYSTEMS CORP.',rev:'7',level:'Direct Shareholder',country:'KR',degree:2},
+        {name:'TICO',rev:'n.a.',level:'Level 6',country:'IN',degree:2},
+        {name:'NSC NO.1 PRIVATE EQUITY',rev:'n.a.',level:'Level 4',country:'KR',degree:2},
+        {name:'DAEYOUNG EMC CO.,LTD',rev:'5',level:'Level 4',country:'KR',degree:2},
+        {name:'JEJU HANLIM OFFSHORE WIND',rev:'7',level:'Level 6',country:'KR',degree:2},
+      ]},
+      { rank:3, name:'HYUNDAI MOTOR COMPANY', value:'10 connections', raw:10, rev:'119,204', emp:'n.a.', country:'KR', level:'Level 5', degree:10, conns:[
+        {name:'PT HLI GREEN POWER',rev:'n.a.',level:'Level 5',country:'ID',degree:6},
+        {name:'HYUNDAI FUTURENET CO.,LTD.',rev:'146',level:'Level 5',country:'KR',degree:6},
+        {name:'HMG GLOBAL LLC',rev:'n.a.',level:'Level 5',country:'n.a.',degree:4},
+        {name:'HYUNDAI MOTOR CO. LTD. (US)',rev:'n.a.',level:'Intermediate',country:'US',degree:4},
+        {name:'HYUNDAI ASSET & INVESTMENT',rev:'n.a.',level:'Intermediate',country:'KR',degree:4},
+        {name:'ILSHIN LEISURE CO.,LTD',rev:'9',level:'Level 6',country:'KR',degree:2},
+        {name:'ORANGE',rev:'n.a.',level:'Level 7',country:'n.a.',degree:2},
+        {name:'GLOBAL FOODTECH COMPANY',rev:'1',level:'Level 6',country:'KR',degree:2},
+      ]},
+      { rank:4, name:'THE KOREA ECONOMIC DAILY CO.,LTD', value:'10 connections', raw:10, rev:'282', emp:'n.a.', country:'KR', level:'Level 5', degree:10, conns:[
+        {name:'CHANNEL A CORPORATION',rev:'151',level:'Level 6',country:'KR',degree:6},
+        {name:'IONITY HOLDING GmbH & CO.',rev:'154',level:'Intermediate',country:'DE',degree:6},
+        {name:'POLED CO., LTD',rev:'36',level:'Intermediate',country:'KR',degree:4},
+        {name:'IGNITE CO., LTD',rev:'8',level:'Intermediate',country:'KR',degree:4},
+        {name:'KOREA OCEAN BUSINESS CORP.',rev:'345',level:'Intermediate',country:'KR',degree:4},
+        {name:'STRADVISION GmbH',rev:'n.a.',level:'Level 6',country:'DE',degree:2},
+        {name:'HANKYUNG MAGAZINE & BOOK',rev:'11',level:'Level 6',country:'KR',degree:2},
+        {name:'ILJIN BEARING CO.,LTD',rev:'223',level:'Ultimate Owner',country:'KR',degree:2},
+      ]},
+      { rank:5, name:'S-1 CORPORATION', value:'10 connections', raw:10, rev:'1,907', emp:'n.a.', country:'KR', level:'Level 7', degree:10, conns:[
+        {name:'HOTEL SHILLA CO.,LTD.',rev:'2,685',level:'Level 7',country:'KR',degree:8},
+        {name:'SAMSUNG E&A CO.,LTD.',rev:'6,779',level:'Level 7',country:'KR',degree:8},
+        {name:'CHEIL WORLDWIDE INC.',rev:'2,955',level:'Level 7',country:'KR',degree:6},
+        {name:'AIV CO.,LTD',rev:'3',level:'Level 7',country:'KR',degree:2},
+        {name:'DAESHIN BALANCE 14',rev:'n.a.',level:'Level 7',country:'KR',degree:2},
+        {name:'HUMAN TOTAL SECURITY',rev:'123',level:'Level 7',country:'KR',degree:2},
+        {name:'CANADA NICKEL COMPANY INC.',rev:'n.a.',level:'Level 7',country:'CA',degree:2},
+        {name:'KB NO.21 SPAC',rev:'n.a.',level:'Level 7',country:'KR',degree:2},
+      ]},
+      { rank:6, name:'SAMSUNG GLOBAL RESEARCH CO.,LTD', value:'10 connections', raw:10, rev:'170', emp:'293', country:'KR', level:'Level 6', degree:10, conns:[
+        {name:'SAMSUNG VENTURE INVESTMENT',rev:'59',level:'Level 7',country:'KR',degree:8},
+        {name:'CONSTRUCTION GUARANTEE COOP.',rev:'190',level:'Level 6',country:'KR',degree:6},
+        {name:'CHEIL WORLDWIDE INC.',rev:'2,955',level:'Level 7',country:'KR',degree:6},
+        {name:'SAMSUNG BIOLOGICS CO., LTD.',rev:'3,093',level:'Level 5',country:'KR',degree:4},
+        {name:'MULTICAMPUS CORPORATION',rev:'239',level:'Level 7',country:'KR',degree:4},
+        {name:'LIMPID CORP',rev:'0',level:'Level 7',country:'KR',degree:2},
+        {name:'AMOGY INC.',rev:'14',level:'Level 7',country:'US',degree:2},
+        {name:'SAMJUNG TECH CO.,LTD',rev:'88',level:'Level 7',country:'KR',degree:2},
+      ]},
+      { rank:7, name:'SAMSUNG HEAVY INDUSTRIES CO., LTD.', value:'10 connections', raw:10, rev:'6,736', emp:'n.a.', country:'KR', level:'Level 7', degree:10, conns:[
+        {name:'IMARKETASIA CO., LTD.',rev:'n.a.',level:'Level 5',country:'HK',degree:8},
+        {name:'CONSTRUCTION GUARANTEE COOP.',rev:'190',level:'Level 6',country:'KR',degree:6},
+        {name:'BEOBLE',rev:'n.a.',level:'Level 7',country:'n.a.',degree:4},
+        {name:'S-CORE CO.,LTD',rev:'67',level:'Level 7',country:'KR',degree:4},
+        {name:'A-TECH SOLUTION CO.,LTD.',rev:'196',level:'Level 7',country:'KR',degree:2},
+        {name:'MALTANI CORPORATION',rev:'122',level:'Level 7',country:'KR',degree:2},
+        {name:'CAMELLIA CONSULTING (US)',rev:'25',level:'Level 7',country:'US',degree:2},
+        {name:'CHEIL SOUTH AFRICA (PTY)',rev:'n.a.',level:'Level 7',country:'ZA',degree:2},
+      ]},
+      { rank:8, name:'HAEVICHI HOTELS & RESORTS CO.,LTD', value:'9 connections', raw:9, rev:'113', emp:'n.a.', country:'KR', level:'Level 5', degree:9, conns:[
+        {name:'HYUNDAI TRANSYS INC',rev:'8,671',level:'Level 5',country:'KR',degree:7},
+        {name:'KOREA EV CHARGING SERVICE',rev:'12',level:'Level 6',country:'KR',degree:6},
+        {name:'HYUNDAI GREEN DEVELOPMENT',rev:'8',level:'Level 4',country:'KR',degree:4},
+        {name:'SUPERNAL, LLC',rev:'183',level:'Level 5',country:'US',degree:4},
+        {name:'MOTIONAL AD LLC',rev:'83',level:'Level 5',country:'US',degree:4},
+        {name:'EASY MOVE CO.,LTD',rev:'n.a.',level:'Level 5',country:'KR',degree:4},
+        {name:'KDBHMG ZERO ONE FUND',rev:'n.a.',level:'Level 5',country:'KR',degree:2},
+        {name:'SURFF COMPANY INC',rev:'1',level:'Intermediate',country:'KR',degree:2},
+      ]},
+      { rank:9, name:'MEGAZONE CLOUD CORPORATION', value:'8 connections', raw:8, rev:'806', emp:'n.a.', country:'KR', level:'Level 4', degree:8, conns:[
+        {name:'MEDIR INC',rev:'n.a.',level:'Level 7',country:'KR',degree:4},
+        {name:'MANWOLGYEONG CO.,LTD',rev:'8',level:'Level 4',country:'KR',degree:2},
+        {name:'KUBERIX CORPORATION',rev:'0',level:'Level 5',country:'KR',degree:2},
+        {name:'PERIGEE AEROSPACE INC',rev:'1',level:'Level 7',country:'KR',degree:2},
+        {name:'LS MARINE SOLUTION',rev:'88',level:'Level 6',country:'KR',degree:2},
+        {name:'MYREALTRIP INC',rev:'60',level:'Level 7',country:'KR',degree:2},
+        {name:'NGENEBIO USA HOLDINGS',rev:'3',level:'Level 7',country:'US',degree:2},
+        {name:'MEDY-TOX INC.',rev:'155',level:'Level 7',country:'KR',degree:2},
+      ]},
+      { rank:10, name:'HMGS LTD', value:'8 connections', raw:8, rev:'n.a.', emp:'n.a.', country:'KR', level:'Level 5', degree:8, conns:[
+        {name:'HMGICS PTE. LTD.',rev:'64',level:'Level 6',country:'SG',degree:8},
+        {name:'HYUNDAI TRANSYS INC',rev:'8,671',level:'Level 5',country:'KR',degree:7},
+        {name:'HYUNDAI PARTECS CO.,LTD',rev:'59',level:'Ultimate Owner',country:'KR',degree:6},
+        {name:'HYUNDAI AUTOEVER CORP.',rev:'2,526',level:'Level 5',country:'KR',degree:6},
+        {name:'HMG GLOBAL LLC',rev:'n.a.',level:'Level 5',country:'n.a.',degree:4},
+        {name:'2ND YOUNGDONG HIGHWAY',rev:'59',level:'Level 6',country:'KR',degree:2},
+        {name:'HMG GLOBAL',rev:'n.a.',level:'Intermediate',country:'n.a.',degree:2},
+        {name:'BIO MECCA INCORPORATION',rev:'1',level:'Level 6',country:'KR',degree:2},
+      ]},
+    ]
+  },
+  closeness: {
+    color: 'var(--accent4)', hex: '#10b981',
+    scoreLabel: 'Closeness centrality',
+    items: [
+      { rank:1, name:'THE KOREA ECONOMIC DAILY CO.,LTD', value:'0.023795', raw:0.023795, rev:'282', emp:'n.a.', country:'KR', level:'Level 5', degree:10, conns:[
+        {name:'CHANNEL A CORPORATION',rev:'151',level:'Level 6',country:'KR',degree:6},
+        {name:'IONITY HOLDING GmbH',rev:'154',level:'Intermediate',country:'DE',degree:6},
+        {name:'POLED CO., LTD',rev:'36',level:'Intermediate',country:'KR',degree:4},
+        {name:'IGNITE CO., LTD',rev:'8',level:'Intermediate',country:'KR',degree:4},
+        {name:'KOREA OCEAN BUSINESS CORP.',rev:'345',level:'Intermediate',country:'KR',degree:4},
+        {name:'STRADVISION GmbH',rev:'n.a.',level:'Level 6',country:'DE',degree:2},
+        {name:'HANKYUNG MAGAZINE&BOOK',rev:'11',level:'Level 6',country:'KR',degree:2},
+        {name:'ILJIN BEARING CO.,LTD',rev:'223',level:'Ultimate Owner',country:'KR',degree:2},
+      ]},
+      { rank:2, name:'HYUNDAI MOTOR COMPANY', value:'0.023780', raw:0.023780, rev:'119,204', emp:'n.a.', country:'KR', level:'Level 5', degree:10, conns:[
+        {name:'PT HLI GREEN POWER',rev:'n.a.',level:'Level 5',country:'ID',degree:6},
+        {name:'HYUNDAI FUTURENET CO.,LTD.',rev:'146',level:'Level 5',country:'KR',degree:6},
+        {name:'HMG GLOBAL LLC',rev:'n.a.',level:'Level 5',country:'n.a.',degree:4},
+        {name:'HYUNDAI MOTOR CO. LTD. (US)',rev:'n.a.',level:'Intermediate',country:'US',degree:4},
+        {name:'HYUNDAI ASSET & INVESTMENT',rev:'n.a.',level:'Intermediate',country:'KR',degree:4},
+        {name:'ILSHIN LEISURE CO.,LTD',rev:'9',level:'Level 6',country:'KR',degree:2},
+        {name:'ORANGE',rev:'n.a.',level:'Level 7',country:'n.a.',degree:2},
+        {name:'GLOBAL FOODTECH COMPANY',rev:'1',level:'Level 6',country:'KR',degree:2},
+      ]},
+      { rank:3, name:'CHANNEL A CORPORATION', value:'0.023726', raw:0.023726, rev:'151', emp:'n.a.', country:'KR', level:'Level 6', degree:6, conns:[
+        {name:'KOREA ECONOMIC DAILY',rev:'282',level:'Level 5',country:'KR',degree:10},
+        {name:'HURAYPOSITIVE CORP',rev:'2',level:'Level 6',country:'KR',degree:4},
+        {name:'KOREA SPECIALTY CONTRACTOR',rev:'214',level:'Intermediate',country:'KR',degree:4},
+        {name:'CHANNEL A NEWSVISION',rev:'8',level:'Level 7',country:'KR',degree:2},
+        {name:'JTBC CO., LTD',rev:'258',level:'Level 4',country:'KR',degree:2},
+        {name:'SUNGSHIN CM CO.,LTD',rev:'42',level:'Level 5',country:'KR',degree:2},
+      ]},
+      { rank:4, name:'PT HLI GREEN POWER', value:'0.023700', raw:0.023700, rev:'n.a.', emp:'n.a.', country:'ID', level:'Level 5', degree:6, conns:[
+        {name:'HYUNDAI MOTOR COMPANY',rev:'119,204',level:'Level 5',country:'KR',degree:10},
+        {name:'HYEON DAE GI SUL TU JA SU',rev:'n.a.',level:'Level 5',country:'KR',degree:6},
+        {name:'HYUNDAI VENTURE INVESTMENT',rev:'6',level:'Direct Shareholder',country:'KR',degree:4},
+        {name:'SPB AUDIO LAB BULGARIA',rev:'0',level:'Level 5',country:'BG',degree:2},
+        {name:'GREENERY CARBON REDUCTION',rev:'n.a.',level:'Intermediate',country:'KR',degree:2},
+        {name:'INOKOM CORPORATION',rev:'79',level:'Ultimate Owner',country:'MY',degree:2},
+      ]},
+      { rank:5, name:'HYUNDAI FUTURENET CO.,LTD.', value:'0.023648', raw:0.023648, rev:'146', emp:'n.a.', country:'KR', level:'Level 5', degree:6, conns:[
+        {name:'HYUNDAI MOTOR COMPANY',rev:'119,204',level:'Level 5',country:'KR',degree:10},
+        {name:'HYUNDAI CORPORATION HOLDINGS',rev:'146',level:'Level 5',country:'KR',degree:8},
+        {name:'AUDIOBURST LTD',rev:'n.a.',level:'Level 6',country:'IL',degree:4},
+        {name:'HYUNDAI RENTAL CARE',rev:'84',level:'Level 5',country:'KR',degree:2},
+        {name:'HYUNDAI HCN CO., LTD',rev:'n.a.',level:'Level 6',country:'KR',degree:2},
+        {name:'BRAVOBEAVER.BUSAN CORP',rev:'n.a.',level:'Intermediate',country:'KR',degree:2},
+      ]},
+      { rank:6, name:'SAMSUNG GLOBAL RESEARCH CO.,LTD', value:'0.023642', raw:0.023642, rev:'170', emp:'293', country:'KR', level:'Level 6', degree:10, conns:[
+        {name:'SAMSUNG VENTURE INVESTMENT',rev:'59',level:'Level 7',country:'KR',degree:8},
+        {name:'CONSTRUCTION GUARANTEE COOP.',rev:'190',level:'Level 6',country:'KR',degree:6},
+        {name:'CHEIL WORLDWIDE INC.',rev:'2,955',level:'Level 7',country:'KR',degree:6},
+        {name:'SAMSUNG BIOLOGICS',rev:'3,093',level:'Level 5',country:'KR',degree:4},
+        {name:'MULTICAMPUS CORPORATION',rev:'239',level:'Level 7',country:'KR',degree:4},
+        {name:'LIMPID CORP',rev:'0',level:'Level 7',country:'KR',degree:2},
+        {name:'AMOGY INC.',rev:'14',level:'Level 7',country:'US',degree:2},
+        {name:'SAMJUNG TECH CO.,LTD',rev:'88',level:'Level 7',country:'KR',degree:2},
+      ]},
+      { rank:7, name:'HYUNDAI VENTURE INVESTMENT CORP', value:'0.023634', raw:0.023634, rev:'6', emp:'18', country:'KR', level:'Direct Shareholder', degree:4, conns:[
+        {name:'PT HLI GREEN POWER',rev:'n.a.',level:'Level 5',country:'ID',degree:6},
+        {name:'HYUNDAI MOTOR MFG. ALABAMA',rev:'n.a.',level:'Intermediate',country:'US',degree:4},
+        {name:'HYUNDAI M SYSTEMS CORP.',rev:'7',level:'Direct Shareholder',country:'KR',degree:2},
+        {name:'ADAPT INC',rev:'134',level:'Level 4',country:'KR',degree:2},
+      ]},
+      { rank:8, name:'IONITY HOLDING GmbH & CO. KG', value:'0.023622', raw:0.023622, rev:'154', emp:'219', country:'DE', level:'Intermediate', degree:6, conns:[
+        {name:'KOREA ECONOMIC DAILY',rev:'282',level:'Level 5',country:'KR',degree:10},
+        {name:'KOREA BUSINESS BANKING CORP.',rev:'5',level:'Intermediate',country:'KR',degree:6},
+        {name:'PIEMSOL CO.,LTD',rev:'0',level:'Intermediate',country:'KR',degree:4},
+        {name:'KUMHO EXPRESS CO.,LTD',rev:'215',level:'Intermediate',country:'KR',degree:4},
+        {name:'IONITY GmbH',rev:'89',level:'Direct Shareholder',country:'DE',degree:2},
+        {name:'IONITY MANAGEMENT GmbH',rev:'n.a.',level:'Direct Shareholder',country:'DE',degree:2},
+      ]},
+      { rank:9, name:'HYUNDAI M PARTNERS CO., LTD', value:'0.023621', raw:0.023621, rev:'29', emp:'n.a.', country:'KR', level:'Intermediate', degree:10, conns:[
+        {name:'HYUNDAI CAPITAL UK LIMITED',rev:'296',level:'Intermediate',country:'GB',degree:6},
+        {name:'KORAMCO LIFE INFRA REIT',rev:'25',level:'Intermediate',country:'KR',degree:4},
+        {name:'HYUNDAI MIRAERO CO., LTD',rev:'0',level:'Level 7',country:'KR',degree:4},
+        {name:'HYUNDAI M SYSTEMS CORP.',rev:'7',level:'Direct Shareholder',country:'KR',degree:2},
+        {name:'TICO',rev:'n.a.',level:'Level 6',country:'IN',degree:2},
+        {name:'NSC NO.1 PRIVATE EQUITY',rev:'n.a.',level:'Level 4',country:'KR',degree:2},
+        {name:'DAEYOUNG EMC CO.,LTD',rev:'5',level:'Level 4',country:'KR',degree:2},
+        {name:'JEJU HANLIM OFFSHORE WIND',rev:'7',level:'Level 6',country:'KR',degree:2},
+      ]},
+      { rank:10, name:'ORANGE', value:'0.023573', raw:0.023573, rev:'n.a.', emp:'n.a.', country:'n.a.', level:'Level 7', degree:2, conns:[
+        {name:'HYUNDAI MOTOR COMPANY',rev:'119,204',level:'Level 5',country:'KR',degree:10},
+        {name:'LIMPID CORP',rev:'0',level:'Level 7',country:'KR',degree:2},
+      ]},
+    ]
+  },
+  betweenness: {
+    color: 'var(--accent5)', hex: '#f59e0b',
+    scoreLabel: 'Betweenness centrality',
+    items: [
+      { rank:1, name:'THE KOREA ECONOMIC DAILY CO.,LTD', value:'0.1642', raw:0.1642, rev:'282', emp:'n.a.', country:'KR', level:'Level 5', degree:10, conns:[
+        {name:'CHANNEL A CORPORATION',rev:'151',level:'Level 6',country:'KR',degree:6},
+        {name:'IONITY HOLDING GmbH',rev:'154',level:'Intermediate',country:'DE',degree:6},
+        {name:'POLED CO., LTD',rev:'36',level:'Intermediate',country:'KR',degree:4},
+        {name:'IGNITE CO., LTD',rev:'8',level:'Intermediate',country:'KR',degree:4},
+        {name:'KOREA OCEAN BUSINESS CORP.',rev:'345',level:'Intermediate',country:'KR',degree:4},
+        {name:'STRADVISION GmbH',rev:'n.a.',level:'Level 6',country:'DE',degree:2},
+        {name:'HANKYUNG MAGAZINE&BOOK',rev:'11',level:'Level 6',country:'KR',degree:2},
+        {name:'ILJIN BEARING CO.,LTD',rev:'223',level:'Ultimate Owner',country:'KR',degree:2},
+      ]},
+      { rank:2, name:'FLAXRES GmbH', value:'0.1585', raw:0.1585, rev:'n.a.', emp:'13', country:'DE', level:'Level 7', degree:4, conns:[
+        {name:'EVAR CO.,LTD',rev:'5',level:'Level 7',country:'KR',degree:6},
+        {name:'KOREA RAS LAFFAN LNG LTD',rev:'2',level:'Level 7',country:'US',degree:4},
+        {name:'AEONUS CO.,LTD',rev:'1',level:'Level 7',country:'KR',degree:2},
+        {name:'FLAXRES OPERATIONS EUROPE',rev:'n.a.',level:'Intermediate',country:'DE',degree:2},
+      ]},
+      { rank:3, name:'HYUNDAI M PARTNERS CO., LTD', value:'0.1551', raw:0.1551, rev:'29', emp:'n.a.', country:'KR', level:'Intermediate', degree:10, conns:[
+        {name:'HYUNDAI CAPITAL UK LIMITED',rev:'296',level:'Intermediate',country:'GB',degree:6},
+        {name:'KORAMCO LIFE INFRA REIT',rev:'25',level:'Intermediate',country:'KR',degree:4},
+        {name:'HYUNDAI MIRAERO CO., LTD',rev:'0',level:'Level 7',country:'KR',degree:4},
+        {name:'HYUNDAI M SYSTEMS CORP.',rev:'7',level:'Direct Shareholder',country:'KR',degree:2},
+        {name:'TICO',rev:'n.a.',level:'Level 6',country:'IN',degree:2},
+        {name:'NSC NO.1 PRIVATE EQUITY',rev:'n.a.',level:'Level 4',country:'KR',degree:2},
+        {name:'DAEYOUNG EMC CO.,LTD',rev:'5',level:'Level 4',country:'KR',degree:2},
+        {name:'JEJU HANLIM OFFSHORE WIND',rev:'7',level:'Level 6',country:'KR',degree:2},
+      ]},
+      { rank:4, name:'BEIJING SAMSUNG REAL ESTATE CO LTD', value:'0.1522', raw:0.1522, rev:'n.a.', emp:'n.a.', country:'CN', level:'Level 6', degree:4, conns:[
+        {name:'THAIDEX SET HIGH DIVIDEND ETF',rev:'n.a.',level:'Level 7',country:'TH',degree:2},
+        {name:'BEIJING SAMSUNG REAL ESTATE',rev:'38',level:'Level 6',country:'CN',degree:2},
+        {name:'KAMIOSATSU HIKARI FESTIVAL',rev:'n.a.',level:'Level 5',country:'n.a.',degree:2},
+        {name:'SMART FACTORY 2023',rev:'n.a.',level:'Level 5',country:'KR',degree:2},
+      ]},
+      { rank:5, name:'GENCURIX INC.', value:'0.1373', raw:0.1373, rev:'3', emp:'68', country:'KR', level:'Level 7', degree:4, conns:[
+        {name:'TONYMOLY CO.,LTD.',rev:'120',level:'Level 7',country:'KR',degree:2},
+        {name:'ARAMCO OIL PIPELINES CO.',rev:'n.a.',level:'Level 7',country:'SA',degree:2},
+        {name:'HYOJE PFV CO. LTD',rev:'n.a.',level:'Level 7',country:'KR',degree:2},
+        {name:'FORE BIOTHERAPEUTICS',rev:'2',level:'Level 7',country:'US',degree:2},
+      ]},
+      { rank:6, name:'THAIDEX SET HIGH DIVIDEND ETF', value:'0.1317', raw:0.1317, rev:'n.a.', emp:'n.a.', country:'TH', level:'Level 7', degree:2, conns:[
+        {name:'BEIJING SAMSUNG REAL ESTATE',rev:'n.a.',level:'Level 6',country:'CN',degree:4},
+        {name:'SAMSUNG YELLOW UMBRELLA TRUST',rev:'n.a.',level:'Level 7',country:'KR',degree:2},
+      ]},
+      { rank:7, name:'SAMSUNG YELLOW UMBRELLA GLOBAL PRIVATE INV. TRUST', value:'0.1314', raw:0.1314, rev:'n.a.', emp:'n.a.', country:'KR', level:'Level 7', degree:2, conns:[
+        {name:'SAMSUNG WTI CRUDE OIL DERIVATIVES',rev:'n.a.',level:'Level 7',country:'KR',degree:4},
+        {name:'THAIDEX SET HIGH DIVIDEND ETF',rev:'n.a.',level:'Level 7',country:'TH',degree:2},
+      ]},
+      { rank:8, name:'KOREA RAS LAFFAN LNG LTD', value:'0.1313', raw:0.1313, rev:'2', emp:'4', country:'US', level:'Level 7', degree:4, conns:[
+        {name:'FLAXRES GmbH',rev:'n.a.',level:'Level 7',country:'DE',degree:4},
+        {name:'THE SIAM CHEMICALS PCL',rev:'12',level:'Level 7',country:'TH',degree:2},
+        {name:'NES MATERIALS CORPORATION',rev:'2',level:'Level 5',country:'KR',degree:2},
+        {name:'KAMIOSATSU HIKARI FESTIVAL',rev:'n.a.',level:'Level 5',country:'n.a.',degree:2},
+      ]},
+      { rank:9, name:'SAMSUNG WTI CRUDE OIL SPECIAL ASSET DERIVATIVES 1', value:'0.1310', raw:0.1310, rev:'n.a.', emp:'n.a.', country:'KR', level:'Level 7', degree:4, conns:[
+        {name:'SAMSUNG WEALTH PLAN 30 BOND',rev:'n.a.',level:'Level 7',country:'KR',degree:4},
+        {name:'SAMSUNG WTI CRUDE OIL DER.',rev:'n.a.',level:'Level 7',country:'KR',degree:4},
+        {name:'SAMSUNG YELLOW UMBRELLA TRUST',rev:'n.a.',level:'Level 7',country:'KR',degree:2},
+      ]},
+      { rank:10, name:'SAMSUNG WEALTH PLAN 30 CONVERSION FEEDER BOND', value:'0.1307', raw:0.1307, rev:'n.a.', emp:'n.a.', country:'KR', level:'Level 7', degree:4, conns:[
+        {name:'SAMSUNG WEALTH GLOBAL EMP. FUND',rev:'n.a.',level:'Level 7',country:'KR',degree:4},
+        {name:'SAMSUNG WEALTH PLAN 30 BOND',rev:'n.a.',level:'Level 7',country:'KR',degree:4},
+        {name:'SAMSUNG WTI CRUDE OIL DER.',rev:'n.a.',level:'Level 7',country:'KR',degree:4},
+      ]},
+    ]
+  },
+  eigenvector: {
+    color: 'var(--accent6)', hex: '#ec4899',
+    scoreLabel: 'Eigenvector centrality',
+    items: [
+      { rank:1, name:'KT SPORTS CO.,LTD', value:'0.5701', raw:0.5701, rev:'55', emp:'105', country:'KR', level:'Level 7', degree:13, conns:[
+        {name:'FUNDA CO.,LTD',rev:'0',level:'Level 4',country:'KR',degree:4},
+        {name:'KT ALPHA CO., LTD.',rev:'264',level:'Level 6',country:'KR',degree:4},
+        {name:'NGENEBIO CO.,LTD.',rev:'3',level:'Level 7',country:'KR',degree:4},
+        {name:'K-REALTY 11TH REIT',rev:'1',level:'Level 7',country:'KR',degree:4},
+        {name:'KT ENA CO., LTD',rev:'75',level:'Level 7',country:'KR',degree:4},
+        {name:'PLAY D CO.,LTD.',rev:'26',level:'Level 7',country:'KR',degree:4},
+        {name:'K-REALTY RENTAL HOUSING REIT 5',rev:'n.a.',level:'Level 7',country:'KR',degree:3},
+        {name:'SUSEO STATION CTC',rev:'n.a.',level:'Level 7',country:'KR',degree:2},
+      ]},
+      { rank:2, name:'K-REALTY 11TH REAL ESTATE INVESTMENT TRUST', value:'0.2432', raw:0.2432, rev:'1', emp:'4', country:'KR', level:'Level 7', degree:4, conns:[
+        {name:'KT SPORTS CO.,LTD',rev:'55',level:'Level 7',country:'KR',degree:13},
+        {name:'KT COMMERCE CO.,LTD',rev:'303',level:'Level 6',country:'KR',degree:4},
+        {name:'K-REALTY RENTAL HOUSING REIT 5',rev:'n.a.',level:'Level 7',country:'KR',degree:3},
+        {name:'K-REALTY NO.6 REIT CO., LTD',rev:'n.a.',level:'Level 7',country:'KR',degree:2},
+      ]},
+      { rank:3, name:'K-REALTY RENTAL HOUSING REIT 5 CO.,LTD', value:'0.2363', raw:0.2363, rev:'n.a.', emp:'n.a.', country:'KR', level:'Level 7', degree:3, conns:[
+        {name:'KT SPORTS CO.,LTD',rev:'55',level:'Level 7',country:'KR',degree:13},
+        {name:'KT HUIMANG JIEUM CO.,LTD',rev:'6',level:'Level 7',country:'KR',degree:6},
+        {name:'K-REALTY 11TH REIT',rev:'1',level:'Level 7',country:'KR',degree:4},
+      ]},
+      { rank:4, name:'KT ALPHA CO., LTD.', value:'0.2128', raw:0.2128, rev:'264', emp:'554', country:'KR', level:'Level 6', degree:4, conns:[
+        {name:'KT SPORTS CO.,LTD',rev:'55',level:'Level 7',country:'KR',degree:13},
+        {name:'KTCS CORPORATION',rev:'762',level:'Level 7',country:'KR',degree:6},
+        {name:'KT MOS NAMBU CORPORATION',rev:'70',level:'Level 6',country:'KR',degree:2},
+        {name:'SMART KOREA KT NEXT INV. ASSOC.',rev:'n.a.',level:'Level 6',country:'KR',degree:2},
+      ]},
+      { rank:5, name:'KT ENA CO., LTD', value:'0.1790', raw:0.1790, rev:'75', emp:'151', country:'KR', level:'Level 7', degree:4, conns:[
+        {name:'KT SPORTS CO.,LTD',rev:'55',level:'Level 7',country:'KR',degree:13},
+        {name:'KT GENIE MUSIC CORPORATION',rev:'205',level:'Level 7',country:'KR',degree:4},
+        {name:'STORYWIZ CO.,LTD',rev:'8',level:'Level 7',country:'KR',degree:2},
+        {name:'KT HCN CO., LTD',rev:'156',level:'Level 7',country:'KR',degree:2},
+      ]},
+      { rank:6, name:'KTCS CORPORATION', value:'0.1781', raw:0.1781, rev:'762', emp:'n.a.', country:'KR', level:'Level 7', degree:6, conns:[
+        {name:'KT HUIMANG JIEUM CO.,LTD',rev:'6',level:'Level 7',country:'KR',degree:6},
+        {name:'KOREA EV CHARGING SERVICE',rev:'12',level:'Level 6',country:'KR',degree:6},
+        {name:'KT ALPHA CO., LTD.',rev:'264',level:'Level 6',country:'KR',degree:4},
+        {name:'KT COMMERCE CO.,LTD',rev:'303',level:'Level 6',country:'KR',degree:4},
+        {name:'LITTLE BIG PICTURES INC',rev:'13',level:'Level 7',country:'KR',degree:2},
+        {name:'KTIS CORPORATION',rev:'410',level:'Level 6',country:'KR',degree:2},
+      ]},
+      { rank:7, name:'FUNDA CO.,LTD', value:'0.1756', raw:0.1756, rev:'0', emp:'n.a.', country:'KR', level:'Level 4', degree:4, conns:[
+        {name:'KT SPORTS CO.,LTD',rev:'55',level:'Level 7',country:'KR',degree:13},
+        {name:'ENHANS CO.,LTD',rev:'6',level:'Level 4',country:'KR',degree:4},
+        {name:'GAMEPUB CO.,LTD',rev:'2',level:'Level 4',country:'KR',degree:2},
+        {name:'KT ES PTE. LTD.',rev:'74',level:'Level 6',country:'SG',degree:2},
+      ]},
+      { rank:8, name:'PLAY D CO.,LTD.', value:'0.1755', raw:0.1755, rev:'26', emp:'295', country:'KR', level:'Level 7', degree:4, conns:[
+        {name:'KT SPORTS CO.,LTD',rev:'55',level:'Level 7',country:'KR',degree:13},
+        {name:'KT NASMEDIA CO., LTD.',rev:'96',level:'Level 6',country:'KR',degree:2},
+        {name:'LOGIN D CO.,LTD',rev:'1',level:'Level 6',country:'KR',degree:2},
+        {name:'KB TELECOM 3 ESG FUND',rev:'n.a.',level:'Level 6',country:'KR',degree:2},
+      ]},
+      { rank:9, name:'NGENEBIO CO.,LTD.', value:'0.1739', raw:0.1739, rev:'3', emp:'n.a.', country:'KR', level:'Level 7', degree:4, conns:[
+        {name:'KT SPORTS CO.,LTD',rev:'55',level:'Level 7',country:'KR',degree:13},
+        {name:'KT INVESTMENT CO.,LTD',rev:'6',level:'Level 6',country:'KR',degree:2},
+        {name:'ALGORITHM LABS CO., LTD',rev:'1',level:'Level 7',country:'KR',degree:2},
+        {name:'NGENEBIO USA HOLDINGS',rev:'3',level:'Level 7',country:'US',degree:2},
+      ]},
+      { rank:10, name:'SUSEO STATION CTC DEVELOPMENT CO.,LTD', value:'0.1639', raw:0.1639, rev:'n.a.', emp:'10', country:'KR', level:'Level 7', degree:2, conns:[
+        {name:'KT SPORTS CO.,LTD',rev:'55',level:'Level 7',country:'KR',degree:13},
+        {name:'KT ENGINEERING CO.,LTD',rev:'226',level:'Level 7',country:'KR',degree:4},
+      ]},
+    ]
+  }
+};
+
+// ── COLOUR helpers ────────────────────────────────────────────────────────
+function degreeColor(deg) {
+  if (deg >= 10) return { bg:'#1a0a30', border:'#ec4899', text:'#f472b6' };
+  if (deg >= 6)  return { bg:'#0a1525', border:'#7c3aed', text:'#a78bfa' };
+  if (deg >= 4)  return { bg:'#0a1525', border:'#00d4ff', text:'#7dd3fc' };
+  return { bg:'#0a1525', border:'#1f2d45', text:'#64748b' };
+}
+
+function levelColor(level) {
+  const l = level.toLowerCase();
+  if (l.includes('ultimate')) return '#f59e0b';
+  if (l.includes('direct'))   return '#10b981';
+  if (l.includes('intermediate')) return '#00d4ff';
+  return '#a78bfa';
+}
+
+// ── BUILD RANKING ROWS ────────────────────────────────────────────────────
+function buildRanks(tabKey) {
+  const { color, hex, items } = data[tabKey];
+  const maxVal = items[0].raw;
+  const container = document.getElementById(`ranks-${tabKey}`);
+  const detailPanel = document.getElementById(`detail-${tabKey}`);
+  container.innerHTML = '';
+
+  items.forEach((item, i) => {
+    const pct = Math.max(5, Math.round((item.raw / maxVal) * 100));
+    const rankEmoji = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i+1}`;
+    const rankClass = i === 0 ? 'gold' : i === 1 ? 'silver' : i === 2 ? 'bronze' : '';
+
+    const row = document.createElement('div');
+    row.className = 'rank-row';
+    row.style.setProperty('--row-color', color);
+    row.style.setProperty('--bar-width', pct + '%');
+    row.style.animationDelay = (i * 0.04) + 's';
+
+    row.innerHTML = `
+      <div class="rank-num ${rankClass}">${rankEmoji}</div>
+      <div class="rank-info">
+        <div class="rank-text">
+          <div class="rank-name">${item.name}</div>
+          <div class="rank-meta">
+            <span class="rank-badge country">🌍 ${item.country}</span>
+            <span class="rank-badge level" style="color:${levelColor(item.level)};border-color:${levelColor(item.level)}44;background:${levelColor(item.level)}11">${item.level}</span>
+            <span class="rank-badge" style="color:#64748b;border-color:#1f2d4555">DEG ${item.degree}</span>
+          </div>
+        </div>
+        <div class="rank-value">${item.value}</div>
+      </div>`;
+
+    row.addEventListener('click', () => {
+      container.querySelectorAll('.rank-row').forEach(r => r.classList.remove('selected'));
+      row.classList.add('selected');
+      renderDetail(tabKey, item, hex);
+    });
+
+    container.appendChild(row);
+  });
+}
+
+// ── RENDER DETAIL PANEL ───────────────────────────────────────────────────
+function renderDetail(tabKey, item, hex) {
+  const panel = document.getElementById(`detail-${tabKey}`);
+  const { scoreLabel } = data[tabKey];
+  const maxDeg = Math.max(...(item.conns || []).map(c => c.degree), 1);
+
+  const connsHtml = (item.conns && item.conns.length)
+    ? item.conns.map(c => {
+        const dc = degreeColor(c.degree);
+        const dotSize = Math.max(20, Math.min(36, 20 + c.degree * 1.5));
+        const barPct = Math.round((c.degree / Math.max(maxDeg, 13)) * 100);
+        return `
+          <div class="conn-item">
+            <div class="conn-dot" style="width:${dotSize}px;height:${dotSize}px;background:${dc.bg};border:1.5px solid ${dc.border}">
+              <span style="color:${dc.text};font-size:8px">${c.degree}</span>
+            </div>
+            <div class="conn-text">
+              <div class="conn-name">${c.name}</div>
+              <div class="conn-sub">
+                <span class="conn-chip">🌍 ${c.country}</span>
+                <span class="conn-chip" style="color:${levelColor(c.level)}">${c.level}</span>
+              </div>
+              <div class="deg-bar-wrap"><div class="deg-bar" style="width:${barPct}%;background:${dc.border}"></div></div>
+            </div>
+            <div class="conn-rev" style="color:${hex}">
+              ${c.rev !== 'n.a.' ? `<span style="font-size:8px;color:#64748b">REV</span><br>${c.rev}` : '<span style="color:#374151">n.a.</span>'}
+            </div>
+          </div>`;
+      }).join('')
+    : `<div style="font-size:12px;color:var(--muted);padding:12px 0">No connection data available</div>`;
+
+  panel.innerHTML = `
+    <div class="detail-header">
+      <div class="detail-header-tag">Selected entity · ${scoreLabel}</div>
+      <div class="detail-company-name">${item.name}</div>
+      <div class="detail-score-row">
+        <div class="detail-kpi">
+          <div class="detail-kpi-label">${scoreLabel.split(' ')[0]}</div>
+          <div class="detail-kpi-value" style="color:${hex}">${item.value}</div>
+        </div>
+        <div class="detail-kpi">
+          <div class="detail-kpi-label">Revenue (USD k)</div>
+          <div class="detail-kpi-value" style="color:#f59e0b">${item.rev}</div>
+        </div>
+        <div class="detail-kpi">
+          <div class="detail-kpi-label">Employees</div>
+          <div class="detail-kpi-value" style="color:#10b981">${item.emp}</div>
+        </div>
+        <div class="detail-kpi">
+          <div class="detail-kpi-label">Degree</div>
+          <div class="detail-kpi-value" style="color:#a78bfa">${item.degree}</div>
+        </div>
+      </div>
+      <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+        <span class="rank-badge country" style="font-size:10px">🌍 ${item.country}</span>
+        <span class="rank-badge level" style="font-size:10px;color:${levelColor(item.level)};border-color:${levelColor(item.level)}44;background:${levelColor(item.level)}11">${item.level}</span>
+      </div>
+    </div>
+    <div class="detail-body">
+      <div class="detail-section-title">Direct Connections (${item.conns ? item.conns.length : 0} shown · sorted by degree)</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:12px;line-height:1.7">
+        Each row is a company directly connected to the one you selected.<br>
+        The <strong style="color:#e2e8f0">numbered circle</strong> on the left shows how many connections that company has in the network — bigger and brighter means more connected.<br>
+        The <strong style="color:#e2e8f0">number on the right</strong> is that company's operating revenue (USD thousands).
+      </div>
+      <div class="conn-list">${connsHtml}</div>
+    </div>`;
+}
+
+// ── INITIALISE ────────────────────────────────────────────────────────────
+Object.keys(data).forEach(key => buildRanks(key));
+
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById(`panel-${tab.dataset.tab}`).classList.add('active');
+  });
+});
+</script>
+</body>
+</html>
